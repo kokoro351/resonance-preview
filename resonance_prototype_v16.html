@@ -1,0 +1,746 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Resonance Prototype v16</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg:#06070b;
+      --fg:#f7f7fb;
+      --muted:#8f95a8;
+      --accent:#9fa8ff;
+      --accent2:#d7dbff;
+    }
+    * { box-sizing:border-box; }
+    html,body { margin:0; height:100%; background:var(--bg); color:var(--fg); font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; overflow:hidden; }
+    body { display:grid; place-items:center; }
+    #app { position:relative; width:100%; height:100%; }
+    canvas { width:100%; height:100%; display:block; touch-action:none; }
+    .hud {
+      position:absolute; inset:0; pointer-events:none;
+      display:flex; flex-direction:column; justify-content:space-between;
+      padding:calc(env(safe-area-inset-top) + 14px) 16px calc(env(safe-area-inset-bottom) + 16px);
+    }
+    .top { display:flex; justify-content:space-between; gap:12px; align-items:center; font-size:13px; color:var(--muted); }
+    .pill { border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.035); padding:7px 10px; border-radius:999px; backdrop-filter:blur(8px); }
+    .bottom { text-align:center; font-size:13px; color:var(--muted); min-height:22px; }
+    #overlay {
+      position:absolute; inset:0; display:grid; place-items:center; pointer-events:none;
+      background:rgba(255,255,255,0);
+      transition:background .2s linear;
+    }
+    #overlay.flash { background:rgba(255,255,255,.96); }
+    #message { font-size:14px; letter-spacing:.08em; opacity:.9; }
+    #restart {
+      position:absolute; left:50%; bottom:calc(env(safe-area-inset-bottom) + 18px); transform:translateX(-50%);
+      pointer-events:auto; border:1px solid rgba(255,255,255,.14); color:var(--fg); background:rgba(255,255,255,.05);
+      padding:10px 16px; border-radius:999px; font-size:14px; display:none;
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <canvas id="c"></canvas>
+  <div class="hud">
+    <div class="top">
+      <div class="pill" id="stateLabel">静寂</div>
+      <div class="pill" id="bpmLabel">84 BPM</div>
+    </div>
+    <div class="bottom" id="hint">中央の光をタップ</div>
+  </div>
+  <div id="overlay"><div id="message"></div></div>
+  <button id="restart" type="button">再開</button>
+</div>
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const stateLabel = document.getElementById('stateLabel');
+  const bpmLabel = document.getElementById('bpmLabel');
+  const hint = document.getElementById('hint');
+  const overlay = document.getElementById('overlay');
+  const message = document.getElementById('message');
+  const restart = document.getElementById('restart');
+
+  let dpr=1,w=0,h=0;
+  let audio=null, master=null;
+  let mode='idle';
+  let bpm=84;
+  let energy=0;
+  let rings=[];
+  let nodes=[];
+  let particles=[];
+  let lastBeat=0;
+  let cycleStart=0;
+  let finaleStart=0;
+  let silenceStart=0;
+  let rebirthStart=0;
+  let finaleDurationMs=0;
+  let finaleWhiteoutStartMs=0;
+  let finaleMusicActive=false;
+  let finaleMusicStartStep=0;
+  let finaleKeyShift=0;
+  let lastInputWasOnBeat=false;
+  let syncStreak=0;
+  let lastSyncBeatIndex=-999;
+  let center={x:0,y:0};
+  let totalTaps=0;
+  let variationIndex=0;
+  let beatStep=0;
+  let currentTrack=null;
+
+  const TRACKS=[
+    {
+      name:'LUMEN DRIVE',
+      bg:'#05070d', primary:'#91a7ff', secondary:'#e4e9ff', particle:'#b6c2ff',
+      root:55, mode:[0,2,4,7,9,11,14,16],
+      bass:[0,0,7,0,9,7,4,2],
+      melody:[7,9,11,14,11,9,7,4],
+      finale:[0,4,7,11]
+    },
+    {
+      name:'EMBER PULSE',
+      bg:'#0c0505', primary:'#ff8b72', secondary:'#ffe0d4', particle:'#ffb19f',
+      root:58.27, mode:[0,3,5,7,10,12,15,17],
+      bass:[0,0,5,0,7,5,3,0],
+      melody:[12,10,7,5,7,10,12,15],
+      finale:[0,5,7,10]
+    },
+    {
+      name:'AQUA BLOOM',
+      bg:'#031014', primary:'#55d7e8', secondary:'#d7fcff', particle:'#8beaf3',
+      root:65.41, mode:[0,2,5,7,9,12,14,17],
+      bass:[0,0,5,0,9,7,5,2],
+      melody:[5,7,9,12,9,7,5,2],
+      finale:[0,5,9,12]
+    },
+    {
+      name:'VIOLET GRID',
+      bg:'#0d0613', primary:'#c183ff', secondary:'#f0d8ff', particle:'#d9b1ff',
+      root:49, mode:[0,2,3,7,8,10,14,15],
+      bass:[0,0,3,0,7,3,2,0],
+      melody:[14,10,8,7,8,10,14,15],
+      finale:[0,3,7,10]
+    },
+    {
+      name:'NOVA ASCENT',
+      bg:'#07070b', primary:'#fff07c', secondary:'#fffbd6', particle:'#fff3a7',
+      root:61.74, mode:[0,2,4,6,7,9,11,13],
+      bass:[0,0,7,0,11,9,7,4],
+      melody:[7,11,13,16,13,11,9,7],
+      finale:[0,4,7,11,14]
+    }
+  ];
+
+  const MAX_RINGS=20;
+  const MAX_NODES=10;
+  const MAX_PARTICLES=220;
+  const ENERGY_THRESHOLD=800;
+
+
+  function semi(root, semitone){
+    return root*Math.pow(2,semitone/12);
+  }
+
+  function resize(){
+    const r=canvas.getBoundingClientRect();
+    dpr=Math.min(devicePixelRatio||1,2);
+    w=r.width; h=r.height;
+    canvas.width=Math.floor(w*dpr);
+    canvas.height=Math.floor(h*dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    center={x:w/2,y:h/2};
+  }
+
+  function ensureAudio(){
+    if(audio) return;
+    audio=new (window.AudioContext||window.webkitAudioContext)();
+    master=audio.createGain();
+    master.gain.value=.34;
+    master.connect(audio.destination);
+  }
+
+  function tone(freq,dur=.12,type='sine',gain=.12,slide=0){
+    if(!audio) return;
+    const now=audio.currentTime;
+    const o=audio.createOscillator();
+    const g=audio.createGain();
+    o.type=type;
+    o.frequency.setValueAtTime(freq,now);
+    if(slide) o.frequency.exponentialRampToValueAtTime(Math.max(20,freq+slide),now+dur);
+    g.gain.setValueAtTime(.0001,now);
+    g.gain.exponentialRampToValueAtTime(gain,now+.01);
+    g.gain.exponentialRampToValueAtTime(.0001,now+dur);
+    o.connect(g); g.connect(master);
+    o.start(now); o.stop(now+dur+.03);
+  }
+
+  function noiseHit(duration=.045, gain=.025){
+    if(!audio) return;
+    const now=audio.currentTime;
+    const length=Math.max(1,Math.floor(audio.sampleRate*duration));
+    const buffer=audio.createBuffer(1,length,audio.sampleRate);
+    const data=buffer.getChannelData(0);
+    for(let i=0;i<length;i++){
+      data[i]=(Math.random()*2-1)*(1-i/length);
+    }
+    const src=audio.createBufferSource();
+    const filter=audio.createBiquadFilter();
+    const g=audio.createGain();
+    filter.type='highpass';
+    filter.frequency.value=5200;
+    g.gain.setValueAtTime(gain,now);
+    g.gain.exponentialRampToValueAtTime(.0001,now+duration);
+    src.buffer=buffer;
+    src.connect(filter); filter.connect(g); g.connect(master);
+    src.start(now);
+  }
+
+  function kickHit(strength=1){
+    if(!audio) return;
+    const now=audio.currentTime;
+    const o=audio.createOscillator();
+    const g=audio.createGain();
+    o.type='sine';
+    o.frequency.setValueAtTime(120,now);
+    o.frequency.exponentialRampToValueAtTime(48,now+.13);
+    g.gain.setValueAtTime(.0001,now);
+    g.gain.exponentialRampToValueAtTime(.18*strength,now+.008);
+    g.gain.exponentialRampToValueAtTime(.0001,now+.16);
+    o.connect(g); g.connect(master);
+    o.start(now); o.stop(now+.18);
+  }
+
+  function snareHit(strength=1){
+    noiseHit(.11,.04*strength);
+    tone(180,.09,'triangle',.025*strength);
+  }
+
+
+  function backgroundStep(){
+    const tr=currentTrack||TRACKS[0];
+    const step=beatStep%8;
+    const absoluteStep=beatStep;
+    beatStep++;
+
+    const progress=Math.min(1,energy/ENERGY_THRESHOLD);
+    const finaleProgress=finaleMusicActive
+      ? Math.min(1,(absoluteStep-finaleMusicStartStep)/16)
+      : 0;
+    const keyShift=finaleMusicActive ? finaleKeyShift : 0;
+    const boost=finaleMusicActive ? 0.35+0.65*finaleProgress : 0;
+
+    noiseHit(step%2===0 ? .045 : .028, step%2===0 ? .038 : .024);
+    if(step%2===0) kickHit(1.05+progress*.22+boost*.28);
+    if(step===2 || step===6) snareHit(1.0+progress*.2+boost*.22);
+
+    if(step%2===0){
+      const bassNote=tr.bass[step]+keyShift;
+      tone(semi(tr.root,bassNote),.20,'sawtooth',.055+.03*progress+.025*boost);
+    }
+
+    if(step===0 || (finaleMusicActive && step===4)){
+      [0,4,7].forEach((n,i)=>{
+        tone(semi(tr.root,n+keyShift)*2,.48,'sine',.025+.009*i+.012*boost);
+      });
+    }
+
+    const melodyNote=tr.melody[step]+keyShift+(finaleMusicActive && finaleProgress>.5 ? 12 : 0);
+    tone(
+      semi(tr.root,melodyNote)*2,
+      .12,
+      finaleMusicActive || progress>.55 ? 'sawtooth' : 'triangle',
+      .035+.035*progress+.03*boost
+    );
+
+    if(step%2===1 || finaleMusicActive){
+      const arp=tr.mode[(step+Math.floor(progress*8)+absoluteStep)%tr.mode.length]
+        +keyShift+(finaleMusicActive?12:0);
+      tone(semi(tr.root,arp)*4,.075,'triangle',.018+.017*progress+.022*boost);
+    }
+
+    if(!finaleMusicActive && progress>.35 && (step===3 || step===7)){
+      const accent=tr.mode[(step+3)%tr.mode.length]+12;
+      tone(semi(tr.root,accent)*4,.10,'square',.014+.016*progress);
+    }
+
+  }
+
+  function tapSound(strength=0){
+    const tr=currentTrack||TRACKS[0];
+    const note=tr.mode[totalTaps%tr.mode.length];
+    const gain=0.092 + strength*0.095;
+    const type=strength>.45?'sawtooth':'triangle';
+    tone(semi(tr.root,note)*2,.10,type,gain);
+    if(strength>.55){
+      tone(semi(tr.root,note+12)*2,.075,'triangle',.045*strength);
+    }
+  }
+
+  function chime(intensity=1, strength=0){
+    const tr=currentTrack||TRACKS[0];
+    const idx=(Math.floor(energy/40)+totalTaps)%tr.mode.length;
+    const n1=tr.mode[idx];
+    const n2=tr.mode[(idx+2)%tr.mode.length];
+    const boost=1+strength*1.25;
+    tone(semi(tr.root,n1)*2,.15,strength>.5?'sawtooth':'sine',.076*intensity*boost);
+    tone(semi(tr.root,n2)*2,.21,'triangle',.044*intensity*boost);
+  }
+
+  function finaleSound(){
+    if(!audio) return;
+    const tr=currentTrack||TRACKS[0];
+
+    finaleMusicActive=true;
+    finaleMusicStartStep=beatStep;
+    finaleKeyShift=[2,3,5,4,7][variationIndex%5];
+
+    bpm=Math.min(164,bpm+14);
+    bpmLabel.textContent=bpm+' BPM';
+
+    const eighth=60/bpm/2;
+    finaleDurationMs=44*eighth*1000;
+    finaleWhiteoutStartMs=finaleDurationMs;
+
+    if(master){
+      const now=audio.currentTime;
+      master.gain.cancelScheduledValues(now);
+      master.gain.setValueAtTime(Math.max(master.gain.value,.30),now);
+      master.gain.linearRampToValueAtTime(.44,now+finaleDurationMs/1000*0.58);
+      master.gain.setValueAtTime(.44,now+finaleDurationMs/1000);
+      master.gain.setValueAtTime(.44,now+finaleDurationMs/1000+1.0);
+      master.gain.exponentialRampToValueAtTime(.02,now+finaleDurationMs/1000+3.8);
+    }
+
+
+  }
+
+  function burst(x,y,n=18,speed=2.2){
+    for(let i=0;i<n && particles.length<MAX_PARTICLES;i++){
+      const a=Math.PI*2*i/n+Math.random()*.25;
+      const s=.6+Math.random()*speed;
+      particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:1,size:1+Math.random()*2});
+    }
+  }
+
+  function addNode(x,y){
+    if(nodes.length>=MAX_NODES){
+      // 古い共鳴点から静かに消える
+      nodes.shift();
+    }
+    nodes.push({x,y,life:1,pulse:1,locked:false});
+  }
+
+  function addRing(x,y,power=1,generation=0){
+    if(rings.length>=MAX_RINGS) rings.shift();
+    rings.push({x,y,r:4,speed:1.5+Math.min((energy/ENERGY_THRESHOLD)*1.2,1.2),alpha:.95,power,generation,hit:new Set()});
+  }
+
+
+  function currentBeatIndex(nowMs){
+    const stepMs=(60000/bpm)/2;
+    if(!lastBeat || stepMs<=0) return 0;
+    return Math.round((nowMs-lastBeat)/stepMs)+beatStep;
+  }
+
+  function registerSync(nowMs, strength){
+    const beatIndex=currentBeatIndex(nowMs);
+    if(beatIndex===lastSyncBeatIndex) return syncStreak;
+
+    if(beatIndex-lastSyncBeatIndex<=2){
+      syncStreak=Math.min(8,syncStreak+1);
+    } else {
+      syncStreak=1;
+    }
+    lastSyncBeatIndex=beatIndex;
+
+    if(syncStreak>=6) hint.textContent='RESONANCE';
+    else if(syncStreak>=4) hint.textContent='TRANCE';
+    else if(syncStreak>=3) hint.textContent='FLOW';
+    else if(syncStreak>=2) hint.textContent='SYNC × '+syncStreak;
+    else hint.textContent='SYNC';
+
+    // 連続SYNCほど画面全体が拍に合わせて脈動
+    if(syncStreak>=4){
+      burst(center.x,center.y,18+syncStreak*3,2.4+syncStreak*.22);
+    }
+    return syncStreak;
+  }
+
+  function beatAccuracy(nowMs){
+    const stepMs=(60000/bpm)/2;
+    if(!lastBeat || stepMs<=0) return 0;
+    const elapsed=nowMs-lastBeat;
+    const wrapped=((elapsed%stepMs)+stepMs)%stepMs;
+    const dist=Math.min(wrapped,stepMs-wrapped);
+    const windowMs=Math.min(95,stepMs*.28);
+    return Math.max(0,1-dist/windowMs);
+  }
+
+  function input(x,y){
+    if(mode==='idle'){
+      beginCycle();
+      x=center.x; y=center.y;
+    }
+    if(mode!=='active') return;
+
+    const nowMs=performance.now();
+    const accuracy=beatAccuracy(nowMs);
+    const synced=accuracy>.38;
+    lastInputWasOnBeat=synced;
+
+    totalTaps++;
+    addNode(x,y);
+
+    let streak=0;
+    if(synced) streak=registerSync(nowMs,accuracy);
+    else if(nowMs-lastBeat>(60000/bpm)) syncStreak=0;
+
+    const streakBoost=Math.max(0,streak-1);
+    addRing(x,y,synced?1.8+streakBoost*.18:1,0);
+    burst(
+      x,y,
+      synced?24+streakBoost*5:8,
+      synced?3.4+streakBoost*.3:1.5
+    );
+    energy=Math.min(ENERGY_THRESHOLD,energy+(synced?5+streakBoost:2));
+    tapSound(synced?Math.min(1,accuracy+streakBoost*.08):0);
+
+    if(synced){
+      const n=nodes[nodes.length-1];
+      if(n) n.pulse=2.8+streakBoost*.45;
+      setTimeout(()=>{
+        if(mode==='active' && syncStreak<2) hint.textContent='波を重ねて共鳴を育てる';
+      },300);
+    } else {
+      hint.textContent='波を重ねて共鳴を育てる';
+    }
+  }
+
+  function beginCycle(){
+    overlay.classList.remove('flash');
+    if(master && audio){
+      const now=audio.currentTime;
+      master.gain.cancelScheduledValues(now);
+      master.gain.setValueAtTime(.34,now);
+    }
+    mode='active';
+    cycleStart=performance.now();
+    energy=0; rings=[]; nodes=[]; particles=[];
+    totalTaps=0; bpm=96; beatStep=0; lastInputWasOnBeat=false; syncStreak=0; lastSyncBeatIndex=-999;
+    variationIndex=(variationIndex+1)%TRACKS.length;
+    currentTrack=TRACKS[variationIndex];
+    stateLabel.textContent='共鳴 · '+currentTrack.name;
+    bpmLabel.textContent=bpm+' BPM';
+    hint.textContent='好きな場所をタップ · 8つ打ち開始';
+    restart.style.display='none';
+    message.textContent='';
+  }
+
+  function triggerResonance(n,r){
+    if(mode!=='active' || n.locked) return;
+
+    const nowMs=performance.now();
+    const accuracy=beatAccuracy(nowMs);
+    const synced=accuracy>.42;
+    let streak=0;
+
+    if(synced) streak=registerSync(nowMs,accuracy);
+    else if(nowMs-lastBeat>(60000/bpm)) syncStreak=0;
+
+    const streakBoost=Math.max(0,streak-1);
+
+    n.locked=true;
+    n.pulse=synced?2.6+streakBoost*.5:1.35;
+    burst(
+      n.x,n.y,
+      synced?22+streakBoost*6:9,
+      synced?3.0+streakBoost*.32:1.65
+    );
+    energy=Math.min(
+      ENERGY_THRESHOLD,
+      energy+(synced?6+streakBoost:3)
+    );
+    chime(.8,synced?Math.min(1,accuracy+streakBoost*.08):0);
+
+    // 3連続以上で低音を追加、5連続以上で高域コードを追加
+    if(synced && streak>=3){
+      const tr=currentTrack||TRACKS[0];
+      tone(semi(tr.root,tr.bass[(beatStep+2)%tr.bass.length]),.18,'sawtooth',.045+.008*streak);
+    }
+    if(synced && streak>=5){
+      const tr=currentTrack||TRACKS[0];
+      [0,4,7].forEach((offset,i)=>{
+        tone(semi(tr.root,offset+12)*2,.16,'triangle',.02+.004*streak-.002*i);
+      });
+    }
+
+    if(r.generation<1 && Math.random()<(synced?Math.min(.9,.72+streakBoost*.035):.48)){
+      addRing(n.x,n.y,synced?1.15+streakBoost*.12:.68,r.generation+1);
+    }
+    setTimeout(()=>n.locked=false,480);
+  }
+
+  function startFinale(now){
+    mode='finale';
+    finaleStart=now;
+    stateLabel.textContent='臨界';
+    hint.textContent='';
+    rings=[];
+    finaleSound();
+    nodes.forEach(n=>n.locked=true);
+  }
+
+  function startSilence(now){
+    syncStreak=0;
+    lastSyncBeatIndex=-999;
+    finaleMusicActive=false;
+    finaleKeyShift=0;
+    mode='silence';
+    silenceStart=now;
+    stateLabel.textContent='静寂';
+    message.textContent='';
+    particles=[]; rings=[];
+    nodes=[];
+  }
+
+  function startRebirth(now){
+    mode='rebirth';
+    rebirthStart=now;
+    stateLabel.textContent='再誕';
+  }
+
+  function update(now,dt){
+    const beatMs=60000/bpm;
+
+    // プレイ中からエンディングまで、同じBGMクロックを止めずに継続
+    if(mode==='active' || mode==='finale'){
+      const stepMs=beatMs/2;
+      if(now-lastBeat>stepMs){
+        lastBeat=now;
+        backgroundStep();
+        if(mode==='active'){
+          bpm=Math.min(142,96+Math.floor((energy/ENERGY_THRESHOLD)*8)*6);
+          bpmLabel.textContent=bpm+' BPM';
+        }
+      }
+    }
+
+    if(mode==='active'){
+      for(let i=rings.length-1;i>=0;i--){
+        const r=rings[i];
+        r.r+=r.speed*dt*.06;
+        r.alpha-=.0046*dt*.06;
+        let hitsThisFrame=0;
+        for(let j=0;j<nodes.length && hitsThisFrame<2;j++){
+          const n=nodes[j];
+          if(r.hit.has(j)) continue;
+          const d=Math.hypot(n.x-r.x,n.y-r.y);
+          if(Math.abs(d-r.r)<4+r.speed && d>18){
+            r.hit.add(j);
+            triggerResonance(n,r);
+            hitsThisFrame++;
+          }
+        }
+        if(r.alpha<=0 || r.r>Math.max(w,h)*1.2) rings.splice(i,1);
+      }
+      if(energy>=ENERGY_THRESHOLD) startFinale(now);
+    } else if(mode==='finale'){
+      const elapsed=now-finaleStart;
+      const prelude=650;
+      if(elapsed<prelude){
+        message.textContent='収束';
+      } else if(elapsed<prelude+finaleDurationMs){
+        message.textContent='';
+      } else if(elapsed<prelude+finaleDurationMs+1000){
+        // 最終フレーズのままホワイトアウト開始
+        overlay.classList.add('flash');
+      } else if(elapsed<prelude+finaleDurationMs+3800){
+        // ホワイトアウト維持中に音楽をゆっくりフェード
+        overlay.classList.add('flash');
+      } else {
+        overlay.classList.remove('flash');
+        startSilence(now);
+      }
+    } else if(mode==='silence'){
+      if(now-silenceStart>1200) startRebirth(now);
+    } else if(mode==='rebirth'){
+      if(now-rebirthStart>1600){
+        mode='idle';
+        stateLabel.textContent='静寂';
+        bpm=84;
+        bpmLabel.textContent='84 BPM';
+        hint.textContent='中央の光をタップ';
+      }
+    }
+
+    for(let i=particles.length-1;i>=0;i--){
+      const p=particles[i];
+      p.x+=p.vx*dt*.06; p.y+=p.vy*dt*.06;
+      p.vx*=.987; p.vy*=.987; p.life-=.016*dt*.06;
+      if(p.life<=0) particles.splice(i,1);
+    }
+    for(const n of nodes){
+      n.life=Math.max(.15,n.life-.0006*dt);
+      n.pulse*=.91;
+    }
+  }
+
+  function draw(now){
+    const pal=currentTrack||TRACKS[0];
+    ctx.clearRect(0,0,w,h);
+    ctx.fillStyle=pal.bg; ctx.fillRect(0,0,w,h);
+    ctx.save();
+    ctx.globalCompositeOperation='lighter';
+
+    if(mode==='active' && syncStreak>=4){
+      const pulse=.5+.5*Math.sin(now*.018);
+      ctx.globalAlpha=.025+syncStreak*.008*pulse;
+      ctx.fillStyle=pal.secondary;
+      ctx.fillRect(0,0,w,h);
+    }
+
+    if(mode==='idle' || mode==='rebirth'){
+      const base=mode==='rebirth'?Math.min(1,(now-rebirthStart)/1200):1;
+      const pulse=.5+.5*Math.sin(now*.003);
+      ctx.globalAlpha=.4+.5*pulse;
+      ctx.fillStyle=pal.secondary;
+      ctx.beginPath(); ctx.arc(center.x,center.y,(3+5*pulse)*base,0,Math.PI*2); ctx.fill();
+      ctx.globalAlpha=.12+.12*pulse;
+      ctx.beginPath(); ctx.arc(center.x,center.y,(18+10*pulse)*base,0,Math.PI*2); ctx.fill();
+    }
+
+    if(mode==='active'){
+      for(const r of rings){
+        ctx.globalAlpha=Math.max(0,r.alpha*.75);
+        ctx.strokeStyle=pal.primary;
+        ctx.lineWidth=1.2+r.power*1.55;
+        ctx.beginPath(); ctx.arc(r.x,r.y,r.r,0,Math.PI*2); ctx.stroke();
+      }
+      for(const n of nodes){
+        ctx.globalAlpha=.25+n.life*.55;
+        ctx.fillStyle=pal.secondary;
+        ctx.beginPath(); ctx.arc(n.x,n.y,2.2+n.pulse*5,0,Math.PI*2); ctx.fill();
+      }
+    }
+
+    if(mode==='finale'){
+      const elapsed=now-finaleStart;
+      const t=elapsed/1000;
+      const gather=Math.min(1,t/.65);
+      const musicalElapsed=Math.max(0,elapsed-650);
+      const musicalProgress=finaleDurationMs>0?Math.min(1,musicalElapsed/finaleDurationMs):0;
+      const bloom=Math.max(0,musicalProgress);
+      const cx=center.x, cy=center.y;
+      const pts=nodes.length?nodes:[{x:cx,y:cy}];
+
+      ctx.strokeStyle=pal.secondary;
+      ctx.fillStyle=pal.secondary;
+      ctx.lineWidth=1.25;
+      ctx.globalAlpha=.18+.78*bloom;
+
+      // Existing points are pulled into the center first.
+      for(let i=0;i<pts.length;i++){
+        const p=pts[i];
+        const x=p.x+(cx-p.x)*gather;
+        const y=p.y+(cy-p.y)*gather;
+        ctx.beginPath();
+        ctx.moveTo(cx,cy);
+        ctx.lineTo(x,y);
+        ctx.stroke();
+      }
+
+      // Large radial spokes expand beyond the viewport.
+      const spokes=24+variationIndex*4;
+      const maxR=Math.hypot(w,h)*(.32+1.05*bloom);
+      for(let i=0;i<spokes;i++){
+        const a=Math.PI*2*i/spokes+now*.00035;
+        const inner=18+65*bloom;
+        const wobble=1+.16*Math.sin(i*2.7+now*.004);
+        ctx.globalAlpha=.10+.58*bloom;
+        ctx.beginPath();
+        ctx.moveTo(cx+Math.cos(a)*inner,cy+Math.sin(a)*inner);
+        ctx.lineTo(cx+Math.cos(a)*maxR*wobble,cy+Math.sin(a)*maxR*wobble);
+        ctx.stroke();
+      }
+
+      // Multiple expanding mandala rings fill the entire screen.
+      const ringsCount=8;
+      for(let r=0;r<ringsCount;r++){
+        const rr=(Math.hypot(w,h)/ringsCount)*(r+1)*bloom;
+        const sides=10+r*2+(variationIndex%3)*2;
+        ctx.globalAlpha=.08+.34*bloom*(1-r/ringsCount*.45);
+        ctx.beginPath();
+        for(let i=0;i<=sides;i++){
+          const a=Math.PI*2*i/sides+now*(.00022+r*.00003);
+          const mod=1+.12*Math.sin(a*(3+r%4)+now*.003);
+          const x=cx+Math.cos(a)*rr*mod;
+          const y=cy+Math.sin(a)*rr*mod;
+          if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+        }
+        ctx.stroke();
+      }
+
+      // Petal waves reach the edges and overlap.
+      const petals=16;
+      for(let i=0;i<petals;i++){
+        const a=Math.PI*2*i/petals-now*.00028;
+        const rr=Math.hypot(w,h)*(.18+.72*bloom);
+        ctx.globalAlpha=.08+.30*bloom;
+        ctx.beginPath();
+        ctx.ellipse(
+          cx+Math.cos(a)*rr*.36,
+          cy+Math.sin(a)*rr*.36,
+          rr*.72,
+          rr*.14,
+          a,
+          0,
+          Math.PI*2
+        );
+        ctx.stroke();
+      }
+
+      // Central bloom grows until it washes over the viewport.
+      ctx.globalAlpha=.10+.48*bloom;
+      ctx.beginPath();
+      ctx.arc(cx,cy,30+Math.hypot(w,h)*.66*bloom,0,Math.PI*2);
+      ctx.fill();
+    }
+
+    for(const p of particles){
+      ctx.globalAlpha=Math.max(0,p.life);
+      ctx.fillStyle=pal.particle;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.size*p.life,0,Math.PI*2); ctx.fill();
+    }
+    ctx.restore();
+
+    if(mode==='silence'){
+      ctx.fillStyle=pal.bg; ctx.fillRect(0,0,w,h);
+    }
+  }
+
+  let last=performance.now();
+  function loop(now){
+    const dt=Math.min(34,now-last); last=now;
+    update(now,dt); draw(now);
+    requestAnimationFrame(loop);
+  }
+
+  canvas.addEventListener('pointerdown',e=>{
+    ensureAudio();
+    if(audio.state==='suspended') audio.resume();
+    const r=canvas.getBoundingClientRect();
+    input(e.clientX-r.left,e.clientY-r.top);
+  });
+
+  restart.addEventListener('click',beginCycle);
+  window.addEventListener('resize',resize);
+  currentTrack=TRACKS[0];
+  resize();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

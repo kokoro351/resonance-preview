@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#05070d" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>RESONANCE</title>
+</head>
+<body>
+  <main id="app">
+    <canvas id="resonance" aria-label="RESONANCE interactive canvas"></canvas>
+    <div id="hint" aria-live="polite">中央の光をタップ</div>
+    <div id="sync" aria-live="polite"></div>
+    <div id="whiteout"></div>
+    <button id="debug-toggle" hidden>DEBUG</button>
+    <section id="debug-panel" hidden>
+      <output id="debug-readout"></output>
+      <button id="force-finale">FORCE FINALE</button>
+    </section>
+  </main>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
