@@ -17,7 +17,10 @@ export type AppState = 'idle'|'active'|'finale'|'whiteout'|'silence'|'rebirth';
 export function debugConfig() {
   const q = new URLSearchParams(location.search);
   const n = (key:string, fallback:number, min=0, max=Infinity) => {
-    const value=Number(q.get(key)); return Number.isFinite(value)?Math.max(min,Math.min(max,value)):fallback;
+    const raw=q.get(key);
+    if(raw===null||raw.trim()==='')return fallback;
+    const value=Number(raw);
+    return Number.isFinite(value)?Math.max(min,Math.min(max,value)):fallback;
   };
   return {
     debug:q.get('debug')==='1', track:Math.round(n('track',1,1,5))-1,
