@@ -31,6 +31,16 @@ npm run preview
 - `?finaleSteps=44`: 転調後の8分音符数（既定44 = 約5.5小節）
 
 例: `http://localhost:5173/?debug=1&energy=760`
+視覚調整用クエリ:
+
+- `waveOpacity`, `waveWidth`, `waveLife`
+- `contactParticles`, `syncParticles`
+- `beatPulse`, `cameraZoom`, `cameraRotation`
+- `flowAt`, `tranceAt`, `resonanceAt`
+- `finaleGather`, `finaleStructure`, `finaleExpand`
+- `mainLines`, `structureLines`, `echoLines`
+
+例: `?debug=1&waveOpacity=.6&beatPulse=.025&cameraZoom=.015`
 
 ## スマートフォン用公開プレビュー（Vercel）
 
