@@ -10,6 +10,7 @@ export const DEFAULTS = {
   flowAt: 3, tranceAt: 4, resonanceAt: 6,
   finaleGatherMs: 900, finaleStructureMs: 1500, finaleExpandMs: 5200,
   finaleMainLines: 12, finaleStructureLines: 36, finaleEchoLines: 72,
+  minimumTaps: 12, minimumActiveMs: 15000,
 } as const;
 
 export type AppState = 'idle'|'active'|'finale'|'whiteout'|'silence'|'rebirth';
@@ -25,6 +26,7 @@ export function debugConfig() {
   return {
     debug:q.get('debug')==='1', track:Math.round(n('track',1,1,5))-1,
     initialEnergy:n('energy',0), threshold:n('threshold',DEFAULTS.energyThreshold,1),
+    minimumTaps:Math.round(n('minTaps',DEFAULTS.minimumTaps,1,100)), minimumActiveMs:n('minPlayMs',DEFAULTS.minimumActiveMs,1000,120000),
     syncWindow:n('sync',DEFAULTS.syncWindowMs,40,160), finaleSteps:n('finaleSteps',DEFAULTS.finaleSteps,4,80),
     waveOpacity:n('waveOpacity',DEFAULTS.waveOpacity,.1,1), waveWidth:n('waveWidth',DEFAULTS.waveWidth,.5,5),
     waveLife:n('waveLife',DEFAULTS.waveLifeMs,1200,7000), contactParticles:n('contactParticles',DEFAULTS.contactParticles,2,30),
