@@ -10,7 +10,15 @@ export class AudioEngine {
     if(!this.ctx){ this.ctx=new (window.AudioContext||window.webkitAudioContext)(); this.master=this.ctx.createGain(); this.master.gain.value=.34; this.master.connect(this.ctx.destination); this.synth=new Synth(this.ctx,this.master); }
     if(this.ctx.state==='suspended') await this.ctx.resume();
   }
-  start(track:Track){ this.track=track; this.bpm=track.baseBpm; this.step=0; this.progress=0; this.finale=false; this.running=true; this.nextStepTime=(this.ctx?.currentTime??0)+.04; this.schedule(); }
+  start(track:Track){
+    if(!this.ctx||!this.master)return;
+    clearTimeout(this.timer);
+    const now=this.ctx.currentTime;
+    this.master.gain.cancelScheduledValues(now);
+    this.master.gain.setValueAtTime(.34,now);
+    this.track=track; this.bpm=track.baseBpm; this.step=0; this.progress=0; this.finale=false;
+    this.running=true; this.nextStepTime=now+.04; this.schedule();
+  }
   setProgress(value:number){ this.progress=Math.max(0,Math.min(1,value)); if(!this.finale)this.bpm=this.track.baseBpm+(142-this.track.baseBpm)*Math.floor(this.progress*8)/8; }
   enterFinale(){ this.finale=true; this.bpm=Math.min(160,this.bpm+16); }
   fadeAfter(seconds:number,fade:number){ if(!this.ctx||!this.master)return; const t=this.ctx.currentTime+seconds; this.master.gain.cancelScheduledValues(this.ctx.currentTime); this.master.gain.setValueAtTime(.42,this.ctx.currentTime); this.master.gain.setValueAtTime(.42,t); this.master.gain.exponentialRampToValueAtTime(.0001,t+fade); }
