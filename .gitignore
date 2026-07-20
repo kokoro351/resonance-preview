@@ -7,3 +7,4 @@ android/keystore.properties
 android/*.jks
 android/*.keystore
 android/app/release/
+.secrets/
