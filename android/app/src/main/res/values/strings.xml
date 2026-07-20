@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">RESONANCE: Tap the Sound</string>
+    <string name="title_activity_main">RESONANCE: Tap the Sound</string>
+    <string name="package_name">com.kokoro351.resonance</string>
+    <string name="custom_url_scheme">com.kokoro351.resonance</string>
+</resources>

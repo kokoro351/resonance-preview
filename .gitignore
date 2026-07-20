@@ -3,3 +3,7 @@ dist/
 .vercel/
 *.log
 .DS_Store
+android/keystore.properties
+android/*.jks
+android/*.keystore
+android/app/release/

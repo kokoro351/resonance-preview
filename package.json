@@ -7,10 +7,17 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "android:sync": "npm run build && cap sync android",
+    "android:bundle": "npm run android:sync && cd android && gradlew.bat bundleRelease"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.4.2",
     "typescript": "^5.8.3",
     "vite": "^7.0.0"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.4.2",
+    "@capacitor/core": "^8.4.2"
   }
 }

@@ -1,89 +1,69 @@
-# RESONANCE
+# RESONANCE: Tap the Sound
 
-タップで生まれる点と波が8分音符の電子音楽に共鳴し、転調フィナーレ、ホワイトアウト、静寂、一粒への再誕までを一続きで体験する、スマートフォン優先のデジタル玩具です。
+RESONANCE is a touch-first audiovisual instrument. Every tap creates a point and a wave; every collision becomes light, rhythm, melody, and arpeggio. The world remembers short motifs, answers them one bar later, and develops the session into a continuous two-part finale.
 
-Issue #3の `resonance_prototype_v16.html` を体験設計の基準に、Vanilla TypeScript、Canvas 2D、Web Audio API、Viteで整理しています。外部音源は使用していません。
+The music and visuals are generated in real time. No copyrighted audio samples, accounts, ads, analytics, or network connection are required.
 
-## 起動
+## Web development
 
-Node.js 20.19以上（または22.12以上）を用意してください。
+Requirements: Node.js 20.19+ or 22.12+.
 
 ```sh
 npm install
 npm run dev
-```
-
-同一LAN内の端末では、Viteが表示するNetwork URLへアクセスできます。音声はブラウザ制約により中央の一粒を最初にタップした時点で始まります。
-
-```sh
 npm run typecheck
 npm run build
-npm run preview
 ```
 
-## デバッグ
+Public web preview: <https://kokoro351.github.io/resonance-preview/>
 
-- `?debug=1`: 状態パネルと強制フィナーレボタン
-- `?track=3`: 初期トラック（1〜5）
-- `?energy=760`: 初期エネルギー
-- `?threshold=100`: 臨界値
-- `?sync=95`: SYNC判定幅の調整用値
-- `?finaleSteps=44`: 転調後の8分音符数（既定44 = 約5.5小節）
+## Android development
 
-例: `http://localhost:5173/?debug=1&energy=760`
-視覚調整用クエリ:
-
-- `waveOpacity`, `waveWidth`, `waveLife`
-- `contactParticles`, `syncParticles`
-- `beatPulse`, `cameraZoom`, `cameraRotation`
-- `flowAt`, `tranceAt`, `resonanceAt`
-- `finaleGather`, `finaleStructure`, `finaleExpand`
-- `mainLines`, `structureLines`, `echoLines`
-
-例: `?debug=1&waveOpacity=.6&beatPulse=.025&cameraZoom=.015`
-
-## スマートフォン用公開プレビュー（Vercel）
-
-GitHub Pages確認URL: `https://kokoro351.github.io/resonance-preview/`
-
-`main` ブランチへのpush時に `.github/workflows/deploy-pages.yml` が自動でビルド・公開します。
-
-`vercel.json` を同梱しています。GitHubへpush後、Vercel Dashboardで **Add New → Project** から対象リポジトリをImportすると、Framework PresetはViteとして自動認識されます。Build Commandは `npm run build`、Output Directoryは `dist` です。Deploy後に発行される `https://...vercel.app` は外出先のAndroid Chrome / iPhone Safariから確認できます。
-
-CLIを使う場合:
+The Android app uses Capacitor and packages the Vite build locally, so gameplay works offline.
+Android builds require JDK 21. Android Studio's bundled JBR can be used as `JAVA_HOME`.
 
 ```sh
-npm install -g vercel
-vercel login
-vercel
-vercel --prod
+npm run android:sync
+cd android
+gradlew.bat assembleDebug
 ```
 
-確認用途のため `noindex, nofollow` と `robots.txt` を設定しています。ただしURLを知る人は閲覧できます。アクセス制限が必要な場合はVercelのDeployment Protectionを有効にしてください。
+Open the `android` directory in Android Studio to run the app on a physical device or emulator.
 
-## 実装構成
+### Release bundle
 
-- `src/audio`: 5曲の定義、音楽クロック、Web Audioシンセ
-- `src/game`: 点・波・粒子、SYNC/連続SYNC、状態遷移、フィナーレ
-- `src/visual`: 通常描画と楽曲別の全面フィナーレ模様
-- `src/config`: 上限値・タイミング・デバッグ設定
+Google Play releases use an upload key. Generate it once and back it up securely:
 
-### タップ作曲 Phase 1
+```sh
+keytool -genkeypair -v -keystore android/resonance-upload-key.jks -alias resonance-upload -keyalg RSA -keysize 2048 -validity 10000
+```
 
-- タップ位置を各曲のスケールへ量子化し、次の8分音符へメロディとして予約
-- SYNCタップの直近8音をメロディ履歴として反復
-- 直近4秒のタップ密度に応じて、ハイハットを8分から部分16分・短いロールへ変化
-- 波が点へ触れた順番を最大8音のアルペジオ履歴へ保存し、SYNC接触を優先
-- 無操作時は約2〜4秒でハイハット密度を基本パターンへ戻す
-- マスター段に高域抑制フィルターとコンプレッサーを配置
+Copy `android/keystore.properties.example` to `android/keystore.properties`, then enter the real passwords. Both the properties file and keystore are excluded from Git.
 
-### 音楽記憶と完成フィナーレ
+```sh
+npm run android:sync
+cd android
+gradlew.bat bundleRelease
+```
 
-- 通常プレイをPhase A〜Cに分け、42秒未満ではフィナーレへ移行しない
-- 条件未成立でも70秒で3秒の収束予兆へ進み、セッションを完結
-- 4〜8音のSYNCフレーズを最大3個まで記憶し、次小節で忠実再演、その次の小節で軽く変奏
-- 3点以上の接触順をアルペジオモチーフとして記憶
-- フィナーレ開始時に音楽・SYNC・点配置を固定スナップショット化
-- 約16〜18秒のフィナーレを、忠実再演と完成版アレンジの2周で構成
+The signed bundle is created at `android/app/build/outputs/bundle/release/app-release.aab`.
 
-点10、波20、粒子220を上限とし、派生波は1世代、同一点にはクールダウン、1フレームの波あたり共鳴2件までに制限しています。フィナーレではBGMを停止・再起動せず、同じ8分音符クロック上で転調・音域上昇・レイヤー追加を行います。独立したフィナーレ単音やホワイトノイズは鳴らしません。
+## Google Play materials
+
+- English listing text: `store-assets/metadata/en-US/`
+- Store icon and feature graphic: `store-assets/google-play/`
+- Console checklist and Data safety draft: `store-assets/PLAY_CONSOLE_CHECKLIST.md`
+- Privacy policy: `public/privacy.html`
+
+## Debug mode
+
+Use `?debug=1` for the development panel. Useful query parameters include `track`, `energy`, `threshold`, `sync`, `waveOpacity`, `beatPulse`, `cameraZoom`, and finale timing/line-count controls.
+
+## Architecture
+
+- `src/audio`: Web Audio clock, synthesis, five track definitions, composition playback
+- `src/game`: input, waves, nodes, SYNC states, motif memory, session/finale state
+- `src/visual`: real-time rendering, particles, audio-reactive camera, finale geometry
+- `src/config`: limits, timing, and debug configuration
+
+The active music clock continues through the finale. No separate finale track, noise sweep, or independent sustained ending tone is used.
