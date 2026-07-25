@@ -8,6 +8,7 @@ import {SessionController,type SessionPhase} from './game/SessionController';
 import {Renderer} from './visual/Renderer';
 
 const canvas=document.querySelector<HTMLCanvasElement>('#resonance')!,hint=document.querySelector<HTMLDivElement>('#hint')!,syncEl=document.querySelector<HTMLDivElement>('#sync')!,whiteout=document.querySelector<HTMLDivElement>('#whiteout')!;
+const menu=document.querySelector<HTMLElement>('#menu')!,tutorial=document.querySelector<HTMLElement>('#tutorial')!,playButton=document.querySelector<HTMLButtonElement>('#play-button')!,tutorialButton=document.querySelector<HTMLButtonElement>('#tutorial-button')!,tutorialPlayButton=document.querySelector<HTMLButtonElement>('#tutorial-play-button')!,tutorialBackButton=document.querySelector<HTMLButtonElement>('#tutorial-back-button')!;
 const debugToggle=document.querySelector<HTMLButtonElement>('#debug-toggle')!,debugPanel=document.querySelector<HTMLElement>('#debug-panel')!,debugReadout=document.querySelector<HTMLOutputElement>('#debug-readout')!,forceFinale=document.querySelector<HTMLButtonElement>('#force-finale')!;
 const cfg=debugConfig(),audio=new AudioEngine(cfg.syncWindow),engine=new ResonanceEngine(cfg.threshold,cfg.initialEnergy,cfg),finale=new FinaleController(engine,cfg.finaleSteps),session=new SessionController(cfg),renderer=new Renderer(canvas,cfg);
 let trackIndex=cfg.track,track=TRACKS[trackIndex],finaleDuration=0,last=performance.now(),syncTimer=0,finaleStarted=false,forceFinaleRequested=false;
@@ -17,8 +18,13 @@ function showMoment(label:string,duration=500){syncEl.textContent=label;syncEl.c
 function judge(){const{accuracy,beat}=audio.beatAccuracy(),result=engine.sync.judge(accuracy,beat,performance.now());if(result.synced)showMoment(result.label,360);return result;}
 function advanceTrackIfNeeded(){if(!finaleStarted)return;trackIndex=(trackIndex+1)%TRACKS.length;track=TRACKS[trackIndex];finaleStarted=false;document.documentElement.style.background=track.colors.bg;}
 async function begin(){await audio.init();engine.begin();audio.start(track);session.begin(performance.now());forceFinaleRequested=false;hint.style.opacity='0';finaleStarted=false;whiteout.classList.remove('show');}
+async function startFromMenu(){menu.hidden=true;tutorial.hidden=true;await begin();await input(renderer.w/2,renderer.h/2);}
 async function input(x:number,y:number){if(engine.state==='idle'||engine.state==='rebirth'){advanceTrackIfNeeded();await begin();x=renderer.w/2;y=renderer.h/2;}if(engine.state!=='active'){engine.burst(x,y,3,.5);return;}const point=renderer.screenToWorld(x,y),result=judge(),note=audio.composeTap(point.x/renderer.w,point.y/renderer.h,result.synced,result.streak);engine.tap(point.x,point.y,result,note);audio.tapFeedback(result.synced?result.accuracy:0,note);if(result.synced)renderer.focus(point.x,point.y,result.accuracy);}
-canvas.addEventListener('pointerdown',e=>{e.preventDefault();const r=canvas.getBoundingClientRect();void input(e.clientX-r.left,e.clientY-r.top);},{passive:false});
+playButton.addEventListener('click',()=>void startFromMenu());
+tutorialButton.addEventListener('click',()=>{menu.hidden=true;tutorial.hidden=false;});
+tutorialBackButton.addEventListener('click',()=>{tutorial.hidden=true;menu.hidden=false;});
+tutorialPlayButton.addEventListener('click',()=>void startFromMenu());
+canvas.addEventListener('pointerdown',e=>{e.preventDefault();if(!menu.hidden||!tutorial.hidden)return;const r=canvas.getBoundingClientRect();void input(e.clientX-r.left,e.clientY-r.top);},{passive:false});
 window.addEventListener('resize',renderer.resize);document.addEventListener('visibilitychange',()=>{if(!document.hidden&&audio.ctx?.state==='suspended')void audio.ctx.resume();});
 audio.onBeat=event=>renderer.beat(event);audio.onMemory=motif=>{showMoment('MEMORY',750);renderer.memory(motif.notes);};
 
